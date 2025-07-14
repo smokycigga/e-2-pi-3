@@ -3,8 +3,7 @@
 An AI-powered web application that generates JEE-style mock tests from PDF study material. Built with Flask, MongoDB, and modern frontend technologies, the platform lets users upload academic PDFs, extract meaningful questions, and attempt timed, auto-evaluated tests.
 
 ---
-Project Demo:
-[![Project Demo](https://github.com/user-attachments/assets/01f5c8ae-4330-4925-a6d7-7631bf5f9d21)](https://github.com/user-attachments/assets/01f5c8ae-4330-4925-a6d7-7631bf5f9d21)
+
 
 ##  Features
 
