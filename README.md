@@ -26,10 +26,3 @@ An AI-powered web application that generates JEE-style mock tests from PDF study
 
 ---
 
-## Setup Instructions
-
-### 1. Clone the Repository
-
-```bash
-git clone https://github.com/anwitac246/test-generator-web.git
-cd test-generator-web
