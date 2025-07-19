@@ -1,4 +1,4 @@
-# Test Generator Web App
+# BodhAi
 
 An AI-powered web application that generates JEE-style mock tests from PDF study material. Built with Flask, MongoDB, and modern frontend technologies, the platform lets users upload academic PDFs, extract meaningful questions, and attempt timed, auto-evaluated tests.
 
