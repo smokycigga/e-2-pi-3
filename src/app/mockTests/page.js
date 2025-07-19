@@ -1,153 +1,78 @@
 "use client";
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import Navbar from "../components/navbar";
+import Sidebar from "../components/sidebar";
 import { useAuth } from "@clerk/nextjs";
-import clsx from "clsx";
+import dynamic from 'next/dynamic';
 
-const subjects = {
-  Physics: [
-    "Units and Measurements",
-    "Kinematics",
-    "Laws of Motion",
-    "Work, Energy and Power",
-    "Rotational Motion",
-    "Gravitation",
-    "Properties of Solids and Liquids",
-    "Thermodynamics",
-    "Kinetic Theory of Gases",
-    "Oscillations and Waves",
-    "Electrostatics",
-    "Current Electricity",
-    "Magnetic Effects of Current and Magnetism",
-    "Electromagnetic Induction and Alternating Currents",
-    "Electromagnetic Waves",
-    "Optics",
-    "Dual Nature of Matter and Radiation",
-    "Atoms and Nuclei",
-    "Electronic Devices",
-    "Experimental Skills",
-  ],
-  Chemistry: [
-    "Some Basic Concepts in Chemistry",
-    "Atomic Structure",
-    "Chemical Bonding and Molecular Structure",
-    "Chemical Thermodynamics",
-    "Solutions",
-    "Equilibrium",
-    "Redox Reactions and Electrochemistry",
-    "Chemical Kinetics",
-    "Classification of Elements and Periodicity",
-    "The p-Block Elements",
-    "The d- and f-Block Elements",
-    "Coordination Compounds",
-    "Purification and Characterisation of Organic Compounds",
-    "Some Basic Principles of Organic Chemistry",
-    "Hydrocarbons",
-    "Organic Compounds Containing Halogens",
-    "Organic Compounds Containing Oxygen",
-    "Organic Compounds Containing Nitrogen",
-    "Biomolecules",
-    "Principles Related to Practical Chemistry",
-  ],
-  Mathematics: [
-    "Sets, Relations and Functions",
-    "Complex Numbers and Quadratic Equations",
-    "Matrices and Determinants",
-    "Permutations and Combinations",
-    "Binomial Theorem and Its Simple Applications",
-    "Sequence and Series",
-    "Limit, Continuity and Differentiability",
-    "Integral Calculus",
-    "Differential Equations",
-    "Coordinate Geometry",
-    "Three Dimensional Geometry",
-    "Vector Algebra",
-    "Statistics and Probability",
-    "Trigonometry",
-  ],
-};
-
+// Dynamically import ApexCharts to avoid SSR issues
+const Chart = dynamic(() => import('react-apexcharts'), { ssr: false });
 
 export default function CreateMockTest() {
-  const [testType, setTestType] = useState("full");
-  const [selectedSubjects, setSelectedSubjects] = useState([]);
-  const [selectedTopics, setSelectedTopics] = useState({});
-  const [customTime, setCustomTime] = useState(60);
+  const [selectedSubjects, setSelectedSubjects] = useState({
+    Physics: { selected: true, questions: 25, maxQuestions: 50 },
+    Chemistry: { selected: true, questions: 25, maxQuestions: 50 },
+    Mathematics: { selected: true, questions: 25, maxQuestions: 50 }
+  });
+  const [difficultyLevel, setDifficultyLevel] = useState('mixed');
+  const [testMode, setTestMode] = useState('timed');
+  const [duration, setDuration] = useState('1hour');
   const [isLoading, setIsLoading] = useState(false);
   const [testCreated, setTestCreated] = useState(false);
   const [testData, setTestData] = useState(null);
   const { isLoaded, userId } = useAuth();
-  const [testHistory, setTestHistory] = useState([]);
   const [testId, setTestId] = useState(null);
-  const [searchTerm, setSearchTerm] = useState("");
-  const [filterType, setFilterType] = useState("all");
-  const [showTopics, setShowTopics] = useState({});
   const router = useRouter();
-
-  const handleSubjectToggle = (subject) => {
-    if (selectedSubjects.includes(subject)) {
-      setSelectedSubjects(selectedSubjects.filter((s) => s !== subject));
-      const updatedTopics = { ...selectedTopics };
-      delete updatedTopics[subject];
-      setSelectedTopics(updatedTopics);
-    } else {
-      setSelectedSubjects([...selectedSubjects, subject]);
-    }
-  };
 
   useEffect(() => {
     if (!isLoaded) return;
-    
     if (!userId) {
       router.push("/login");
       return;
     }
-    
-    const fetchTestHistory = async () => {
-      try {
-        const response = await fetch("http://localhost:5000/api/test-history", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ userId }),
-        });
-        const data = await response.json();
-        if (response.ok) {
-          setTestHistory(data.tests || []);
-        } else {
-          console.error("Failed to fetch test history:", data.error);
-        }
-      } catch (error) {
-        console.error("Error fetching test history:", error);
-      }
-    };
-    
-    fetchTestHistory();
   }, [isLoaded, userId, router]);
 
-  const toggleTopicsView = (subject) => {
-    setShowTopics(prev => ({ ...prev, [subject]: !prev[subject] }));
+  // Helper functions
+  const getTotalQuestions = () => {
+    return Object.values(selectedSubjects).reduce((total, subject) => 
+      subject.selected ? total + subject.questions : total, 0
+    );
   };
 
-  const handleTopicToggle = (subject, topic) => {
-    const subjectTopics = selectedTopics[subject] || [];
-    if (subjectTopics.includes(topic)) {
-      setSelectedTopics({
-        ...selectedTopics,
-        [subject]: subjectTopics.filter((t) => t !== topic),
-      });
-    } else {
-      setSelectedTopics({
-        ...selectedTopics,
-        [subject]: [...subjectTopics, topic],
-      });
+  const getDurationInMinutes = () => {
+    switch(duration) {
+      case '15min': return 15;
+      case '30min': return 30;
+      case '1hour': return 60;
+      case '3hours': return 180;
+      default: return 60;
     }
   };
 
-  const generateQuestionsForSubject = async (subject, topics, count) => {
+  const handleSubjectToggle = (subjectName) => {
+    setSelectedSubjects(prev => ({
+      ...prev,
+      [subjectName]: {
+        ...prev[subjectName],
+        selected: !prev[subjectName].selected,
+        questions: !prev[subjectName].selected ? 25 : 0
+      }
+    }));
+  };
+
+  const handleQuestionCountChange = (subjectName, count) => {
+    setSelectedSubjects(prev => ({
+      ...prev,
+      [subjectName]: {
+        ...prev[subjectName],
+        questions: Math.min(Math.max(5, count), prev[subjectName].maxQuestions)
+      }
+    }));
+  };
+
+  const generateQuestionsForSubject = async (subject, count) => {
     try {
+      console.log(`Generating exactly ${count} questions for ${subject}`);
       const response = await fetch("http://localhost:5000/api/generate-questions", {
         method: "POST",
         headers: {
@@ -155,8 +80,8 @@ export default function CreateMockTest() {
         },
         body: JSON.stringify({
           subject: subject,
-          count: count,
-          topics: topics || [],
+          count: count, // This ensures backend generates exactly this many questions
+          topics: [],
         }),
       });
 
@@ -165,54 +90,64 @@ export default function CreateMockTest() {
       }
 
       const data = await response.json();
-      return data.questions || [];
+      const questions = data.questions || [];
+      console.log(`Generated ${questions.length} questions for ${subject}`);
+      return questions.slice(0, count); // Ensure we don't exceed the requested count
     } catch (error) {
       console.error(`Error generating questions for ${subject}:`, error);
       return [];
     }
   };
 
-  const handleSubmit = useCallback(async (e) => {
-    e.preventDefault();
+  const handleCreateTest = async () => {
     setIsLoading(true);
-
+    console.log('🚀 Starting test creation...');
+    
     try {
-      if (testType === "custom" && (!customTime || customTime < 10 || customTime > 180)) {
-        alert("Please enter a valid duration between 10 and 180 minutes.");
+      let allQuestions = [];
+      const selectedSubjectsList = Object.entries(selectedSubjects)
+        .filter(([_, data]) => data.selected)
+        .map(([name, data]) => ({ name, questions: data.questions }));
+
+      console.log('📚 Creating test with subjects:', selectedSubjectsList);
+      
+      if (selectedSubjectsList.length === 0) {
+        alert('Please select at least one subject');
         setIsLoading(false);
         return;
       }
 
-      let allQuestions = [];
-      let timeLimit = 180;
-
-      if (testType === "full") {
-        const physicsQuestions = await generateQuestionsForSubject("Physics", [], 25);
-        const chemistryQuestions = await generateQuestionsForSubject("Chemistry", [], 25);
-        const mathQuestions = await generateQuestionsForSubject("Mathematics", [], 25);
-
-        allQuestions = [
-          ...physicsQuestions.map((q) => ({ ...q, subject: "Physics" })),
-          ...chemistryQuestions.map((q) => ({ ...q, subject: "Chemistry" })),
-          ...mathQuestions.map((q) => ({ ...q, subject: "Mathematics" })),
-        ];
-      } else {
-        timeLimit = parseInt(customTime);
-        const questionsPerSubject = Math.ceil(25 / selectedSubjects.length);
-
-        for (const subject of selectedSubjects) {
-          const topicsForSubject = selectedTopics[subject] || [];
-          const questions = await generateQuestionsForSubject(subject, topicsForSubject, questionsPerSubject);
-          allQuestions = [...allQuestions, ...questions.map((q) => ({ ...q, subject }))];
+      for (const { name, questions } of selectedSubjectsList) {
+        console.log(`🔄 Generating ${questions} questions for ${name}...`);
+        const subjectQuestions = await generateQuestionsForSubject(name, questions);
+        console.log(`✅ Generated ${subjectQuestions.length} questions for ${name}`);
+        
+        if (subjectQuestions.length === 0) {
+          console.warn(`⚠️ No questions generated for ${name}`);
+          alert(`Failed to generate questions for ${name}. Please try again.`);
+          setIsLoading(false);
+          return;
         }
+        
+        allQuestions = [...allQuestions, ...subjectQuestions.map(q => ({ ...q, subject: name }))];
+      }
+
+      console.log(`📊 Total questions generated: ${allQuestions.length}`);
+      
+      if (allQuestions.length === 0) {
+        alert('No questions were generated. Please check your internet connection and try again.');
+        setIsLoading(false);
+        return;
       }
 
       const testConfig = {
         questions: allQuestions,
-        timeLimit: timeLimit,
-        testType: testType,
-        subjects: testType === "full" ? ["Physics", "Chemistry", "Mathematics"] : selectedSubjects,
+        timeLimit: getDurationInMinutes(),
+        testType: "custom",
+        subjects: selectedSubjectsList.map(s => s.name),
         totalQuestions: allQuestions.length,
+        difficultyLevel,
+        testMode
       };
 
       if (userId) {
@@ -230,20 +165,6 @@ export default function CreateMockTest() {
         if (response.ok) {
           const data = await response.json();
           setTestId(data.testId);
-          setTestHistory([
-            {
-              testId: data.testId,
-              testType: testConfig.testType,
-              subjects: testConfig.subjects,
-              totalQuestions: testConfig.totalQuestions,
-              timeLimit: testConfig.timeLimit,
-              questions: testConfig.questions,
-              createdAt: new Date().toISOString(),
-            },
-            ...testHistory,
-          ]);
-        } else {
-          console.error("Failed to save test:", await response.json());
         }
       }
 
@@ -255,75 +176,164 @@ export default function CreateMockTest() {
     } finally {
       setIsLoading(false);
     }
-  }, [testType, customTime, selectedSubjects, selectedTopics, testHistory]);
+  };
 
   const handleTakeTest = () => {
     localStorage.setItem("currentTest", JSON.stringify({ ...testData, testId }));
     router.push("/takeTest");
   };
 
-  const handleRetakeTest = (test) => {
-    const testData = {
-      testId: test.testId,
-      questions: test.questions,
-      timeLimit: test.timeLimit,
-      testType: test.testType,
-      subjects: test.subjects,
-      totalQuestions: test.totalQuestions,
-    };
-    localStorage.setItem("currentTest", JSON.stringify(testData));
-    router.push("/takeTest");
+  // Chart configurations with distinct colors
+  const pieChartOptions = {
+    chart: {
+      type: 'donut',
+      background: 'transparent'
+    },
+    colors: ['#3B82F6', '#10B981', '#8B5CF6'], // Distinct colors: Blue, Green, Purple
+    labels: Object.keys(selectedSubjects),
+    legend: {
+      show: false
+    },
+    dataLabels: {
+      enabled: false
+    },
+    plotOptions: {
+      pie: {
+        donut: {
+          size: '70%'
+        }
+      }
+    },
+    stroke: {
+      width: 0
+    }
   };
 
-  const filteredTests = testHistory.filter(test => {
-    const matchesSearch = test.subjects.some(subject => 
-      subject.toLowerCase().includes(searchTerm.toLowerCase())
-    );
-    const matchesFilter = filterType === "all" || test.testType === filterType;
-    return matchesSearch && matchesFilter;
-  });
+  const pieChartSeries = Object.values(selectedSubjects).map(subject => 
+    subject.selected ? subject.questions : 0
+  );
+
+  const barChartOptions = {
+    chart: {
+      type: 'bar',
+      background: 'transparent',
+      toolbar: {
+        show: false
+      }
+    },
+    colors: ['#3B82F6', '#3B82F6', '#3B82F6'], // Same bold blue color for all bars
+    xaxis: {
+      categories: Object.keys(selectedSubjects).filter(key => selectedSubjects[key].selected),
+      labels: {
+        style: {
+          colors: ['#000000'], // Pure black for maximum visibility
+          fontSize: '14px',
+          fontWeight: 700
+        },
+        rotate: -45, // Rotate labels to prevent overlap
+        offsetY: 5,
+        maxHeight: 80
+      }
+    },
+    yaxis: {
+      labels: {
+        style: {
+          colors: ['#000000'], // Pure black for maximum visibility
+          fontSize: '14px',
+          fontWeight: 600
+        }
+      }
+    },
+    grid: {
+      borderColor: '#E5E7EB',
+      strokeDashArray: 3,
+      yaxis: {
+        lines: {
+          show: true
+        }
+      }
+    },
+    dataLabels: {
+      enabled: true,
+      style: {
+        colors: ['#000000'], // Black text for better visibility
+        fontSize: '16px',
+        fontWeight: 'bold'
+      },
+      offsetY: -15 // Move labels up from bars
+    },
+    plotOptions: {
+      bar: {
+        distributed: true, // This makes each bar use a different color
+        borderRadius: 6,
+        columnWidth: '40%', // Further reduced width for more spacing between bars
+        dataLabels: {
+          position: 'top'
+        }
+      }
+    },
+    legend: {
+      show: false
+    },
+    tooltip: {
+      enabled: true,
+      theme: 'light',
+      style: {
+        fontSize: '12px'
+      }
+    }
+  };
+
+  const barChartSeries = [{
+    name: 'Questions',
+    data: Object.entries(selectedSubjects)
+      .filter(([_, data]) => data.selected)
+      .map(([_, data]) => data.questions)
+  }];
 
   if (!isLoaded) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-white">
-        <div className="text-black text-xl animate-pulse">Loading...</div>
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="text-primary text-xl animate-pulse">Loading Bodh.ai...</div>
       </div>
     );
   }
 
   if (testCreated && testData) {
     return (
-      <div>
-        <Navbar />
-        <div className="min-h-screen bg-white p-6">
+      <div className="min-h-screen bg-background flex">
+        <Sidebar />
+        <div className="flex-1 ml-64 p-8">
           <div className="max-w-2xl mx-auto text-center">
             <div className="mb-8">
-              <div className="w-20 h-20 bg-[#FA812F] rounded-full mx-auto mb-4 flex items-center justify-center animate-bounce">
-                <svg className="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <div className="w-24 h-24 bg-primary/10 rounded-2xl mx-auto mb-6 flex items-center justify-center">
+                <svg className="w-12 h-12 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                 </svg>
               </div>
-              <h1 className="text-4xl font-bold text-[#FA812F] mb-2">Test Created!</h1>
-              <p className="text-black">Your mock test is ready</p>
+              <h1 className="text-4xl font-bold text-foreground mb-4">Test Created Successfully!</h1>
+              <p className="text-muted-foreground text-lg">Your personalized mock test is ready to begin</p>
             </div>
 
-            <div className="bg-white border border-[#FA812F]/20 rounded-xl p-6 mb-8 shadow-lg">
-              <div className="grid grid-cols-2 gap-4 text-sm">
-                <div>
-                  <span className="text-black/60">Type:</span>
-                  <p className="font-semibold text-black">{testType === "full" ? "Full Test" : "Custom Test"}</p>
+            <div className="bg-card border border-border rounded-2xl p-8 mb-8 shadow-sm">
+              <div className="grid grid-cols-2 gap-6">
+                <div className="text-center">
+                  <div className="w-12 h-12 bg-primary/10 rounded-xl mx-auto mb-3 flex items-center justify-center">
+                    <svg className="w-6 h-6 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                  </div>
+                  <span className="text-muted-foreground text-sm">Questions</span>
+                  <p className="font-semibold text-foreground text-lg">{testData.totalQuestions}</p>
                 </div>
-                <div>
-                  <span className="text-black/60">Questions:</span>
-                  <p className="font-semibold text-black">{testData.totalQuestions}</p>
-                </div>
-                <div>
-                  <span className="text-black/60">Duration:</span>
-                  <p className="font-semibold text-black">{testData.timeLimit} min</p>
-                </div>
-                <div>
-                  <span className="text-black/60">Subjects:</span>
-                  <p className="font-semibold text-black">{testData.subjects.join(", ")}</p>
+                <div className="text-center">
+                  <div className="w-12 h-12 bg-primary/10 rounded-xl mx-auto mb-3 flex items-center justify-center">
+                    <svg className="w-6 h-6 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                  </div>
+                  <span className="text-muted-foreground text-sm">Duration</span>
+                  <p className="font-semibold text-foreground text-lg">{testData.timeLimit} min</p>
                 </div>
               </div>
             </div>
@@ -331,9 +341,9 @@ export default function CreateMockTest() {
             <div className="space-y-4">
               <button
                 onClick={handleTakeTest}
-                className="w-full px-6 py-3 bg-[#FA812F] hover:bg-[#e8741e] text-white font-semibold rounded-lg transition-colors"
+                className="w-full px-8 py-4 bg-primary hover:bg-primary/90 text-primary-foreground font-semibold rounded-xl transition-all transform hover:scale-105 shadow-lg text-lg"
               >
-                Start Test
+                Start Test Now
               </button>
               <button
                 onClick={() => {
@@ -341,7 +351,7 @@ export default function CreateMockTest() {
                   setTestData(null);
                   setTestId(null);
                 }}
-                className="px-6 py-2 text-[#FA812F] hover:bg-[#FA812F]/10 rounded-lg transition-colors"
+                className="px-6 py-3 text-primary hover:bg-accent hover:text-accent-foreground rounded-xl transition-colors font-medium"
               >
                 Create Another Test
               </button>
@@ -353,232 +363,352 @@ export default function CreateMockTest() {
   }
 
   return (
-    <div>
-      <Navbar />
-      <div className="min-h-screen bg-white p-6">
-        <div className="max-w-4xl mx-auto">
-          <div className="text-center mb-8">
-            <h1 className="text-4xl font-bold text-[#FA812F] mb-2">Create Mock Test</h1>
-            <p className="text-black/70">Build your personalized practice test</p>
+    <div className="min-h-screen bg-background flex">
+      <Sidebar />
+      <div className="flex-1 ml-64 p-8">
+        <div className="max-w-7xl mx-auto">
+          <div className="mb-8">
+            <h1 className="text-3xl font-bold text-foreground mb-2">Create Custom Test</h1>
+            <p className="text-muted-foreground">Configure your personalized practice test</p>
           </div>
 
-          {/* Test Type Selection */}
-          <div className="flex justify-center gap-2 mb-8">
-            {["full", "custom"].map((type) => (
-              <button
-                key={type}
-                onClick={() => setTestType(type)}
-                className={clsx(
-                  "px-6 py-2 rounded-lg font-medium transition-colors",
-                  testType === type
-                    ? "bg-[#FA812F] text-white"
-                    : "bg-white border border-[#FA812F]/20 text-black hover:bg-[#FA812F]/10"
-                )}
-              >
-                {type === "full" ? "Full Test" : "Custom Test"}
-              </button>
-            ))}
-          </div>
-
-          <div className="bg-white border border-[#FA812F]/20 rounded-xl p-6 shadow-lg mb-8">
-            <form onSubmit={handleSubmit} className="space-y-6">
-              {testType === "full" ? (
-                <div className="text-center py-8">
-                  <div className="bg-[#FA812F]/5 rounded-xl p-6">
-                    <h3 className="text-xl font-semibold mb-4 text-black">Complete JEE Mock Test</h3>
-                    <div className="grid grid-cols-3 gap-4 text-center text-sm">
-                      <div className="bg-white rounded-lg p-4 border border-[#FA812F]/10">
-                        <div className="text-2xl font-bold text-[#FA812F]">25</div>
-                        <div className="text-black/60">Physics</div>
-                      </div>
-                      <div className="bg-white rounded-lg p-4 border border-[#FA812F]/10">
-                        <div className="text-2xl font-bold text-[#FA812F]">25</div>
-                        <div className="text-black/60">Chemistry</div>
-                      </div>
-                      <div className="bg-white rounded-lg p-4 border border-[#FA812F]/10">
-                        <div className="text-2xl font-bold text-[#FA812F]">25</div>
-                        <div className="text-black/60">Mathematics</div>
-                      </div>
-                    </div>
-                    <div className="mt-4 text-black">
-                      <span className="text-[#FA812F] font-semibold">Duration: 180 minutes</span>
-                    </div>
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            {/* Left Column - Configuration */}
+            <div className="lg:col-span-2 space-y-6">
+              {/* Select Subjects */}
+              <div className="bg-card rounded-xl border border-border p-6">
+                <div className="flex items-center gap-2 mb-4">
+                  <div className="w-8 h-8 bg-primary/10 rounded-lg flex items-center justify-center">
+                    <svg className="w-4 h-4 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.746 0 3.332.477 4.5 1.253v13C19.832 18.477 18.246 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+                    </svg>
                   </div>
+                  <h2 className="text-lg font-semibold text-card-foreground">Select Subjects</h2>
                 </div>
-              ) : (
-                <>
-                  <div>
-                    <h3 className="text-lg font-semibold mb-3 text-black">Select Subjects</h3>
-                    <div className="grid grid-cols-3 gap-3">
-                      {Object.keys(subjects).map((subject) => (
-                        <label
-                          key={subject}
-                          className={clsx(
-                            "flex items-center gap-2 p-3 rounded-lg border cursor-pointer transition-colors",
-                            selectedSubjects.includes(subject)
-                              ? "bg-[#FA812F]/10 border-[#FA812F] text-black"
-                              : "bg-white border-[#FA812F]/20 hover:bg-[#FA812F]/5 text-black"
-                          )}
-                        >
+
+                <div className="space-y-4">
+                  {Object.entries(selectedSubjects).map(([subject, data]) => (
+                    <div key={subject} className={`border-2 rounded-xl p-4 transition-all ${
+                      data.selected 
+                        ? 'border-primary/30 bg-primary/5'
+                        : 'border-border bg-muted/30'
+                    }`}>
+                      <div className="flex items-center justify-between mb-3">
+                        <label className="flex items-center gap-3 cursor-pointer">
                           <input
                             type="checkbox"
-                            checked={selectedSubjects.includes(subject)}
+                            checked={data.selected}
                             onChange={() => handleSubjectToggle(subject)}
-                            className="w-4 h-4 accent-[#FA812F]"
+                            className="w-5 h-5 text-primary rounded focus:ring-primary"
                           />
-                          <span className="font-medium">{subject}</span>
+                          <div className="flex items-center gap-2">
+                            <div className="w-6 h-6 bg-primary rounded flex items-center justify-center">
+                              {subject === 'Physics' ? (
+                                <svg className="w-4 h-4 text-primary-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                                </svg>
+                              ) : subject === 'Chemistry' ? (
+                                <svg className="w-4 h-4 text-primary-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
+                                </svg>
+                              ) : (
+                                <svg className="w-4 h-4 text-primary-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                                </svg>
+                              )}
+                            </div>
+                            <span className="font-semibold text-card-foreground">{subject}</span>
+                          </div>
                         </label>
-                      ))}
-                    </div>
-                  </div>
+                        <span className="text-sm text-muted-foreground font-medium">
+                          {data.questions} questions
+                        </span>
+                      </div>
 
-                  {selectedSubjects.map((subject) => (
-                    <div key={subject}>
-                      <button
-                        type="button"
-                        onClick={() => toggleTopicsView(subject)}
-                        className="flex items-center justify-between w-full p-3 bg-[#FA812F]/5 rounded-lg text-left hover:bg-[#FA812F]/10 transition-colors"
-                      >
-                        <span className="font-medium text-black">Topics for {subject}</span>
-                        <svg
-                          className={clsx(
-                            "w-5 h-5 text-[#FA812F] transition-transform",
-                            showTopics[subject] ? "rotate-180" : ""
-                          )}
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
-                        >
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                        </svg>
-                      </button>
-                      
-                      {showTopics[subject] && subjects[subject].length > 0 && (
-                        <div className="mt-2 grid grid-cols-2 gap-2 p-3 bg-white border border-[#FA812F]/10 rounded-lg">
-                          {subjects[subject].map((topic) => (
-                            <label
-                              key={topic}
-                              className="flex items-center gap-2 text-sm hover:bg-[#FA812F]/5 p-2 rounded cursor-pointer"
-                            >
-                              <input
-                                type="checkbox"
-                                checked={selectedTopics[subject]?.includes(topic) || false}
-                                onChange={() => handleTopicToggle(subject, topic)}
-                                className="w-4 h-4 accent-[#FA812F]"
-                              />
-                              <span className="text-black">{topic}</span>
-                            </label>
-                          ))}
+                      {data.selected && (
+                        <div className="space-y-3">
+                          <div className="flex items-center justify-between text-sm text-muted-foreground">
+                            <span>Questions: {data.questions}</span>
+                            <span>Max: {data.maxQuestions}</span>
+                          </div>
+                          <div className="relative">
+                            <input
+                              type="range"
+                              min="5"
+                              max={data.maxQuestions}
+                              value={data.questions}
+                              onChange={(e) => handleQuestionCountChange(subject, parseInt(e.target.value))}
+                              className="w-full question-slider"
+                              style={{
+                                background: `linear-gradient(to right, #059669 0%, #059669 ${(data.questions / data.maxQuestions) * 100}%, #e5e7eb ${(data.questions / data.maxQuestions) * 100}%, #e5e7eb 100%)`
+                              }}
+                            />
+                          </div>
                         </div>
                       )}
                     </div>
                   ))}
+                </div>
+              </div>
 
-                  <div>
-                    <label className="block text-lg font-semibold mb-2 text-black">Test Duration</label>
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="number"
-                        value={customTime}
-                        onChange={(e) => setCustomTime(e.target.value)}
-                        className="w-24 px-3 py-2 border border-[#FA812F]/20 rounded-lg text-black focus:outline-none focus:ring-2 focus:ring-[#FA812F]/50"
-                        min="10"
-                        max="180"
+              {/* Difficulty Level & Test Mode */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="bg-card rounded-xl border border-border p-6">
+                  <div className="flex items-center gap-2 mb-4">
+                    <div className="w-8 h-8 bg-primary/10 rounded-lg flex items-center justify-center">
+                      <svg className="w-4 h-4 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                      </svg>
+                    </div>
+                    <h3 className="text-lg font-semibold text-card-foreground">Difficulty Level</h3>
+                  </div>
+
+                  <div className="space-y-3">
+                    {[
+                      { id: 'easy', label: 'Easy', desc: 'Basic concepts and fundamental problems', accuracy: '70-80%' },
+                      { id: 'mixed', label: 'Mixed', desc: 'Combination of easy, medium, and hard questions', accuracy: '50-65%' },
+                      { id: 'advanced', label: 'Advanced', desc: 'Complex problems and challenging concepts', accuracy: '30-50%' }
+                    ].map((level) => (
+                      <label key={level.id} className={`block p-4 rounded-lg border-2 cursor-pointer transition-all ${
+                        difficultyLevel === level.id 
+                          ? 'border-primary bg-primary/5'
+                          : 'border-border hover:border-primary/50'
+                      }`}>
+                        <div className="flex items-start gap-3">
+                          <input
+                            type="radio"
+                            name="difficulty"
+                            value={level.id}
+                            checked={difficultyLevel === level.id}
+                            onChange={(e) => setDifficultyLevel(e.target.value)}
+                            className="mt-1 w-4 h-4 text-primary"
+                          />
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="font-medium text-card-foreground">{level.label}</span>
+                              {level.id === 'mixed' && (
+                                <span className="px-2 py-1 bg-primary/10 text-primary text-xs rounded-full font-medium">
+                                  Recommended
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-sm text-muted-foreground mb-1">{level.desc}</p>
+                            <p className="text-xs text-muted-foreground">{level.accuracy} accuracy expected</p>
+                          </div>
+                        </div>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Test Mode */}
+                <div className="bg-card rounded-xl border border-border p-6">
+                  <div className="flex items-center gap-2 mb-4">
+                    <div className="w-8 h-8 bg-primary/10 rounded-lg flex items-center justify-center">
+                      <svg className="w-4 h-4 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                    </div>
+                    <h3 className="text-lg font-semibold text-card-foreground">Test Mode</h3>
+                  </div>
+
+                  <div className="space-y-3">
+                    <label className={`block p-4 rounded-lg border-2 cursor-pointer transition-all ${
+                      testMode === 'timed' ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/50'
+                    }`}>
+                      <div className="flex items-center gap-3">
+                        <input
+                          type="radio"
+                          name="testMode"
+                          value="timed"
+                          checked={testMode === 'timed'}
+                          onChange={(e) => setTestMode(e.target.value)}
+                          className="w-4 h-4 text-primary"
+                        />
+                        <div>
+                          <div className="font-medium text-card-foreground">Timed</div>
+                          <p className="text-sm text-muted-foreground">Time pressure simulates real exam conditions</p>
+                        </div>
+                      </div>
+                    </label>
+
+                    <label className={`block p-4 rounded-lg border-2 cursor-pointer transition-all ${
+                      testMode === 'untimed' ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/50'
+                    }`}>
+                      <div className="flex items-center gap-3">
+                        <input
+                          type="radio"
+                          name="testMode"
+                          value="untimed"
+                          checked={testMode === 'untimed'}
+                          onChange={(e) => setTestMode(e.target.value)}
+                          className="w-4 h-4 text-primary"
+                        />
+                        <div>
+                          <div className="font-medium text-card-foreground">Untimed</div>
+                          <p className="text-sm text-muted-foreground">Focus on accuracy without time constraints</p>
+                        </div>
+                      </div>
+                    </label>
+                  </div>
+
+                  {/* Duration Selection */}
+                  {testMode === 'timed' && (
+                    <div className="mt-4 pt-4 border-t border-border">
+                      <h4 className="font-medium text-card-foreground mb-3">Duration</h4>
+                      <div className="grid grid-cols-2 gap-2">
+                        {[
+                          { id: '15min', label: '15 minutes', desc: 'Quick practice' },
+                          { id: '30min', label: '30 minutes', desc: 'Short test' },
+                          { id: '1hour', label: '1 hour', desc: 'Standard test' },
+                          { id: '3hours', label: '3 hours', desc: 'Full exam simulation' }
+                        ].map((dur) => (
+                          <button
+                            key={dur.id}
+                            onClick={() => setDuration(dur.id)}
+                            className={`p-3 rounded-lg border text-left transition-all ${
+                              duration === dur.id 
+                                ? 'border-primary bg-primary/5'
+                                : 'border-border hover:border-primary/50'
+                            }`}
+                          >
+                            <div className="font-medium text-card-foreground text-sm">{dur.label}</div>
+                            <div className="text-xs text-muted-foreground">{dur.desc}</div>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Right Column - Preview */}
+            <div className="space-y-6">
+              {/* Test Preview */}
+              <div className="bg-card rounded-xl border border-border p-6">
+                <div className="flex items-center gap-2 mb-4">
+                  <div className="w-8 h-8 bg-primary/10 rounded-lg flex items-center justify-center">
+                    <svg className="w-4 h-4 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                    </svg>
+                  </div>
+                  <h3 className="text-lg font-semibold text-card-foreground">Test Preview</h3>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4 mb-6">
+                  <div className="bg-primary/10 rounded-lg p-4 text-center">
+                    <div className="text-2xl font-bold text-primary mb-1">{getTotalQuestions()}</div>
+                    <div className="text-sm text-primary">Total Questions</div>
+                  </div>
+                  <div className="bg-primary/10 rounded-lg p-4 text-center">
+                    <div className="text-2xl font-bold text-primary mb-1">
+                      {testMode === 'timed' ? `${getDurationInMinutes()} min` : '∞'}
+                    </div>
+                    <div className="text-sm text-primary">Duration</div>
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  <div className="space-y-2 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Difficulty Level</span>
+                      <span className="font-medium text-card-foreground capitalize">{difficultyLevel}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Test Mode</span>
+                      <span className="font-medium text-card-foreground capitalize">{testMode}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Time per Question</span>
+                      <span className="font-medium text-card-foreground">
+                        {testMode === 'timed' ? `${(getDurationInMinutes() / getTotalQuestions()).toFixed(1)} min` : 'Unlimited'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Subject Distribution Chart */}
+              <div className="bg-card rounded-xl border border-border p-6">
+                <h3 className="text-lg font-semibold text-card-foreground mb-4">Subject Distribution</h3>
+                
+                {getTotalQuestions() > 0 ? (
+                  <div className="space-y-4">
+                    <div className="h-48">
+                      <Chart
+                        options={pieChartOptions}
+                        series={pieChartSeries}
+                        type="donut"
+                        height="100%"
                       />
-                      <span className="text-black">minutes (10-180)</span>
+                    </div>
+                    
+                    <div className="space-y-2">
+                      {Object.entries(selectedSubjects)
+                        .filter(([_, data]) => data.selected)
+                        .map(([subject, data], index) => (
+                        <div key={subject} className="flex items-center justify-between text-sm">
+                          <div className="flex items-center gap-2">
+                            <div className={`w-3 h-3 rounded-full`} 
+                                 style={{ backgroundColor: pieChartOptions.colors[index] }}></div>
+                            <span className="text-card-foreground">{subject}</span>
+                          </div>
+                          <span className="font-medium text-card-foreground">{data.questions}</span>
+                        </div>
+                      ))}
                     </div>
                   </div>
-                </>
-              )}
-
-              <button
-                type="submit"
-                disabled={isLoading || (testType === "custom" && selectedSubjects.length === 0)}
-                className={clsx(
-                  "w-full px-6 py-3 rounded-lg font-semibold transition-colors",
-                  isLoading || (testType === "custom" && selectedSubjects.length === 0)
-                    ? "bg-black/10 text-black/40 cursor-not-allowed"
-                    : "bg-[#FA812F] hover:bg-[#e8741e] text-white"
+                ) : (
+                  <div className="text-center py-8 text-muted-foreground">
+                    <div className="text-4xl mb-2">📊</div>
+                    <p>Select subjects to see distribution</p>
+                  </div>
                 )}
-              >
-                {isLoading ? "Creating Test..." : "Create Test"}
-              </button>
-              
-              {testType === "custom" && selectedSubjects.length === 0 && (
-                <p className="text-center text-black/60 text-sm">Select at least one subject</p>
-              )}
-            </form>
-          </div>
-
-          {/* Previous Tests */}
-          <div>
-            <h2 className="text-2xl font-bold mb-4 text-[#FA812F]">Previous Tests</h2>
-            
-            {testHistory.length > 0 && (
-              <div className="flex gap-4 mb-4">
-                <input
-                  type="text"
-                  placeholder="Search by subject..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="flex-1 px-3 py-2 border border-[#FA812F]/20 rounded-lg text-black focus:outline-none focus:ring-2 focus:ring-[#FA812F]/50"
-                />
-                <select
-                  value={filterType}
-                  onChange={(e) => setFilterType(e.target.value)}
-                  className="px-3 py-2 border border-[#FA812F]/20 rounded-lg text-black focus:outline-none focus:ring-2 focus:ring-[#FA812F]/50"
-                >
-                  <option value="all">All Tests</option>
-                  <option value="full">Full Tests</option>
-                  <option value="custom">Custom Tests</option>
-                </select>
               </div>
-            )}
 
-            {filteredTests.length === 0 ? (
-              <div className="text-center py-12 text-black/60">
-                {testHistory.length === 0 ? "No tests created yet" : "No tests match your search"}
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {filteredTests.map((test) => (
-                  <div
-                    key={test.testId}
-                    className="bg-white border border-[#FA812F]/20 rounded-lg p-4 hover:shadow-lg transition-shadow"
-                  >
-                    <div className="flex items-center justify-between mb-3">
-                      <span className={clsx(
-                        "px-2 py-1 rounded text-xs font-medium",
-                        test.testType === "full" 
-                          ? "bg-[#FA812F]/10 text-[#FA812F]" 
-                          : "bg-black/10 text-black"
-                      )}>
-                        {test.testType === "full" ? "Full" : "Custom"}
-                      </span>
-                      <span className="text-xs text-black/60">
-                        {new Date(test.createdAt).toLocaleDateString()}
-                      </span>
-                    </div>
-                    
-                    <div className="space-y-1 text-sm text-black mb-3">
-                      <p><span className="text-black/60">Subjects:</span> {test.subjects.join(", ")}</p>
-                      <p><span className="text-black/60">Questions:</span> {test.totalQuestions}</p>
-                      <p><span className="text-black/60">Duration:</span> {test.timeLimit} min</p>
-                      {test.score !== undefined && (
-                        <p><span className="text-black/60">Score:</span> {test.score}/{test.total}</p>
-                      )}
-                    </div>
-                    
-                    <button
-                      onClick={() => handleRetakeTest(test)}
-                      className="w-full px-4 py-2 bg-[#FA812F] hover:bg-[#e8741e] text-white rounded-lg transition-colors"
-                    >
-                      Retake
-                    </button>
+              {/* Questions per Subject Chart */}
+              <div className="bg-card rounded-xl border border-border p-6">
+                <h3 className="text-lg font-semibold text-card-foreground mb-4">Questions per Subject</h3>
+                
+                {getTotalQuestions() > 0 ? (
+                  <div className="h-48">
+                    <Chart
+                      options={barChartOptions}
+                      series={barChartSeries}
+                      type="bar"
+                      height="100%"
+                    />
                   </div>
-                ))}
+                ) : (
+                  <div className="text-center py-8 text-muted-foreground">
+                    <div className="text-4xl mb-2">📈</div>
+                    <p>Select subjects to see breakdown</p>
+                  </div>
+                )}
               </div>
-            )}
+
+              {/* Create Test Button */}
+              <button
+                onClick={handleCreateTest}
+                disabled={isLoading || getTotalQuestions() === 0}
+                className={`w-full py-4 px-6 rounded-xl font-semibold text-lg transition-all ${
+                  isLoading || getTotalQuestions() === 0
+                    ? 'bg-muted text-muted-foreground cursor-not-allowed'
+                    : 'bg-primary hover:bg-primary/90 text-primary-foreground shadow-lg hover:shadow-xl transform hover:scale-105'
+                }`}
+              >
+                {isLoading ? (
+                  <div className="flex items-center justify-center gap-2">
+                    <div className="w-5 h-5 border-2 border-primary-foreground border-t-transparent rounded-full animate-spin"></div>
+                    Creating Test...
+                  </div>
+                ) : (
+                  `Create Test (${getTotalQuestions()} Questions)`
+                )}
+              </button>
+            </div>
           </div>
         </div>
       </div>

@@ -54,13 +54,20 @@ export default function AuthPage() {
         </div>
 
         {/* Right Side - Auth Form */}
-        <div className="lg:w-1/2 bg-yellow-300/20 flex items-center justify-center p-10">
-          <div className="w-full max-w-md space-y-6">
-            <h2 className="text-3xl font-bold text-[#FA812F]">
-              {isLogin ? "Login to Your Account" : "Create a New Account"}
-            </h2>
+        <div className="lg:w-1/2 bg-green-900/20 flex items-center justify-center p-10">
+          <div className="w-full max-w-md">
+            {/* Custom Header */}
+            <div className="text-center mb-8">
+              <h2 className="text-3xl font-bold text-green-400 mb-2">
+                {isLogin ? "Welcome Back" : "Join Bodh.ai"}
+              </h2>
+              <p className="text-green-300 text-sm">
+                {isLogin ? "Sign in to continue your JEE preparation" : "Start your JEE preparation journey"}
+              </p>
+            </div>
             
-            <div className="flex justify-center">
+            {/* Clerk Auth Component */}
+            <div className="bg-white/5 backdrop-blur-sm rounded-2xl p-6 border border-green-600/20">
               {isLogin ? (
                 <SignIn 
                   routing="hash"
@@ -68,13 +75,20 @@ export default function AuthPage() {
                   redirectUrl="/mockTests"
                   appearance={{
                     elements: {
-                      formButtonPrimary: 'bg-[#FA812F] hover:bg-[#e5731a] text-white',
-                      card: 'shadow-none border-none bg-transparent',
+                      formButtonPrimary: 'bg-green-600 hover:bg-green-700 text-white border-0 shadow-lg rounded-xl py-3 font-semibold',
+                      card: 'shadow-none border-none bg-transparent p-0',
                       headerTitle: 'hidden',
                       headerSubtitle: 'hidden',
-                      socialButtonsBlockButton: 'border-yellow-600 bg-white hover:bg-yellow-50',
-                      formFieldInput: 'border-yellow-600 bg-yellow-50 focus:border-[#FA812F] focus:ring-[#FA812F] placeholder-gray-600',
-                      footerActionLink: 'text-[#F3C623] hover:text-[#FA812F]'
+                      socialButtonsBlockButton: 'border-green-600/30 bg-white/90 hover:bg-green-50 text-gray-700 rounded-xl py-3 font-medium',
+                      formFieldInput: 'border-green-600/30 bg-white/90 focus:border-green-500 focus:ring-green-500/20 placeholder-gray-500 rounded-xl py-3',
+                      footerActionLink: 'text-green-400 hover:text-green-300 font-medium',
+                      formFieldLabel: 'text-green-100 font-medium mb-2',
+                      identityPreviewText: 'text-green-200',
+                      formHeaderTitle: 'text-green-400',
+                      formHeaderSubtitle: 'text-green-300',
+                      dividerLine: 'bg-green-600/30',
+                      dividerText: 'text-green-300',
+                      formFieldRow: 'mb-4'
                     }
                   }}
                 />
@@ -85,42 +99,52 @@ export default function AuthPage() {
                   redirectUrl="/mockTests"
                   appearance={{
                     elements: {
-                      formButtonPrimary: 'bg-[#F3C623] hover:bg-yellow-500 text-gray-800',
-                      card: 'shadow-none border-none bg-transparent',
+                      formButtonPrimary: 'bg-green-600 hover:bg-green-700 text-white border-0 shadow-lg rounded-xl py-3 font-semibold',
+                      card: 'shadow-none border-none bg-transparent p-0',
                       headerTitle: 'hidden',
                       headerSubtitle: 'hidden',
-                      socialButtonsBlockButton: 'border-yellow-600 bg-white hover:bg-yellow-50',
-                      formFieldInput: 'border-yellow-600 bg-yellow-50 focus:border-[#FA812F] focus:ring-[#FA812F] placeholder-gray-600',
-                      footerActionLink: 'text-[#FA812F] hover:text-[#F3C623]'
+                      socialButtonsBlockButton: 'border-green-600/30 bg-white/90 hover:bg-green-50 text-gray-700 rounded-xl py-3 font-medium',
+                      formFieldInput: 'border-green-600/30 bg-white/90 focus:border-green-500 focus:ring-green-500/20 placeholder-gray-500 rounded-xl py-3',
+                      footerActionLink: 'text-green-400 hover:text-green-300 font-medium',
+                      formFieldLabel: 'text-green-100 font-medium mb-2',
+                      identityPreviewText: 'text-green-200',
+                      formHeaderTitle: 'text-green-400',
+                      formHeaderSubtitle: 'text-green-300',
+                      dividerLine: 'bg-green-600/30',
+                      dividerText: 'text-green-300',
+                      formFieldRow: 'mb-4'
                     }
                   }}
                 />
               )}
             </div>
 
-            <p className="text-center text-sm text-[#FA812F]">
-              {isLogin ? (
-                <>
-                  Don&apos;t have an account?{" "}
-                  <button
-                    onClick={() => setIsLogin(false)}
-                    className="text-[#F3C623] font-semibold hover:underline"
-                  >
-                    Sign Up
-                  </button>
-                </>
-              ) : (
-                <>
-                  Already have an account?{" "}
-                  <button
-                    onClick={() => setIsLogin(true)}
-                    className="text-[#F3C623] font-semibold hover:underline"
-                  >
-                    Log In
-                  </button>
-                </>
-              )}
-            </p>
+            {/* Toggle Between Login/Signup */}
+            <div className="text-center mt-6">
+              <p className="text-green-300 text-sm">
+                {isLogin ? (
+                  <>
+                    Don&apos;t have an account?{" "}
+                    <button
+                      onClick={() => setIsLogin(false)}
+                      className="text-green-400 font-semibold hover:text-green-300 transition-colors"
+                    >
+                      Create one here
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    Already have an account?{" "}
+                    <button
+                      onClick={() => setIsLogin(true)}
+                      className="text-green-400 font-semibold hover:text-green-300 transition-colors"
+                    >
+                      Sign in here
+                    </button>
+                  </>
+                )}
+              </p>
+            </div>
           </div>
         </div>
 

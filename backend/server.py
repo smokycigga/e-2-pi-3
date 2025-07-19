@@ -27,9 +27,17 @@ app = Flask(__name__)
 CORS(app)
 
 mongo_uri = os.getenv('MONGODB_URI')
-mongo_client = MongoClient(mongo_uri)
-db = mongo_client['jeeAce']
-tests_collection = db['tests']
+try:
+    mongo_client = MongoClient(mongo_uri)
+    db = mongo_client['jeeAce']
+    tests_collection = db['tests']
+    print("✅ MongoDB connected successfully")
+except Exception as e:
+    print(f"⚠️ MongoDB connection failed: {e}")
+    print("📝 Server will run without database functionality")
+    mongo_client = None
+    db = None
+    tests_collection = None
 
 pdf_folder = "./pdfs"
 output_dir = "./pdf_images"
@@ -39,8 +47,17 @@ os.makedirs(pdf_folder, exist_ok=True)
 embedder = SentenceTransformer('all-MiniLM-L6-v2')
 
 GROQ_API_KEY = os.getenv('GROQ_API_KEY')
+if GROQ_API_KEY:
+    GROQ_API_KEY = GROQ_API_KEY.strip()  # Remove any whitespace
 GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
 GROQ_MODEL = "llama3-8b-8192"
+
+# Debug: Check if API key is loaded
+print(f"GROQ API Key loaded: {'Yes' if GROQ_API_KEY else 'No'}")
+if GROQ_API_KEY:
+    print(f"API Key starts with: {GROQ_API_KEY[:10]}...")
+else:
+    print("ERROR: GROQ_API_KEY not found in environment variables!")
 
 question_faiss_index = faiss.IndexFlatL2(384)
 image_faiss_index = faiss.IndexFlatL2(384)
@@ -81,7 +98,7 @@ def upload_pdf():
 def generate_questions_api():
     try:
         subject = request.json.get('subject', 'All')
-        count = min(int(request.json.get('count', 10)), 25)
+        count = int(request.json.get('count', 10))  # Remove the 25 limit
         topics = request.json.get('topics', [])
         topic_filter = topics[0] if topics else None
 
@@ -97,21 +114,25 @@ def generate_questions_api():
 
         generated_questions = []
         attempts = 0
-        max_attempts = len(relevant_questions)
+        max_attempts = min(len(relevant_questions), count * 3)  # Try up to 3x the requested count
+        
+        print(f"Attempting to generate exactly {count} questions from {len(relevant_questions)} available questions")
         
         for question_data in relevant_questions:
             if len(generated_questions) >= count:
+                print(f"✅ Successfully generated {count} questions as requested")
                 break
 
             attempts += 1
             if attempts > max_attempts:
+                print(f"⚠️ Reached max attempts ({max_attempts}), stopping with {len(generated_questions)} questions")
                 break
 
-            print(f"Processing question {attempts}/{max_attempts}")
+            print(f"Processing question {attempts}/{max_attempts} (Generated: {len(generated_questions)}/{count})")
 
             # Add delay between API calls to avoid rate limiting
             if attempts > 1:
-                time.sleep(2)
+                time.sleep(1)  # Reduced delay for faster generation
 
             mcq = generate_enhanced_mcq(question_data)
 
@@ -138,11 +159,44 @@ def generate_questions_api():
                         print(f"Error loading image: {e}")
 
                 generated_questions.append(question_obj)
-                print(f"Successfully generated question {len(generated_questions)}")
+                print(f"✅ Successfully generated question {len(generated_questions)}/{count}")
             else:
-                print(f"Failed to generate valid MCQ for question: {question_data.get('text', '')[:50]}...")
+                print(f"❌ Failed to generate valid MCQ for question: {question_data.get('text', '')[:50]}...")
 
-        print(f"Final count: {len(generated_questions)} questions generated")
+        # If we don't have enough questions, try to generate more from remaining questions
+        if len(generated_questions) < count and len(relevant_questions) > max_attempts:
+            print(f"⚠️ Only generated {len(generated_questions)}/{count} questions. Trying additional questions...")
+            remaining_questions = relevant_questions[max_attempts:]
+            additional_attempts = 0
+            max_additional = min(len(remaining_questions), (count - len(generated_questions)) * 2)
+            
+            for question_data in remaining_questions:
+                if len(generated_questions) >= count:
+                    break
+                    
+                additional_attempts += 1
+                if additional_attempts > max_additional:
+                    break
+                    
+                print(f"Additional attempt {additional_attempts}/{max_additional}")
+                time.sleep(1)
+                
+                mcq = generate_enhanced_mcq(question_data)
+                if mcq and mcq.get("question") and len(mcq.get("options", [])) == 4:
+                    question_obj = {
+                        "question": mcq["question"],
+                        "options": mcq["options"],
+                        "answer": mcq["answer"],
+                        "subject": question_data.get("subject", "Unknown"),
+                        "source_text": question_data.get("text", "")[:200] + "...",
+                        "page": question_data.get("page"),
+                        "pdf_source": question_data.get("source_pdf")
+                    }
+                    generated_questions.append(question_obj)
+                    print(f"✅ Additional question generated: {len(generated_questions)}/{count}")
+
+        final_count = len(generated_questions)
+        print(f"🎯 Final result: Generated {final_count}/{count} questions ({(final_count/count)*100:.1f}% success rate)")
 
         return jsonify({
             "questions": generated_questions,
@@ -175,8 +229,14 @@ def save_test():
 "createdAt": datetime.now(timezone.utc),
     }
 
-    result = tests_collection.insert_one(test_data)
-    return jsonify({"testId": str(result.inserted_id)}), 201
+    try:
+        result = tests_collection.insert_one(test_data)
+        return jsonify({"testId": str(result.inserted_id)}), 201
+    except Exception as e:
+        print(f"MongoDB error: {e}")
+        # Generate temporary ID so test creation can continue
+        temp_id = str(uuid.uuid4())
+        return jsonify({"testId": temp_id, "warning": "Test saved locally only"}), 201
 
 @app.route('/api/save-test-result', methods=['POST'])
 def save_test_result():
@@ -223,6 +283,122 @@ def save_test_result():
     except Exception as e:
         print(f"Error saving test result: {str(e)}")
         return jsonify({"error": f"Failed to save test result: {str(e)}"}), 500
+@app.route('/api/user-test-results/<user_id>', methods=['GET'])
+def get_user_test_results(user_id):
+    try:
+        # Get pagination parameters
+        page = int(request.args.get('page', 1))
+        limit = int(request.args.get('limit', 10))
+        skip = (page - 1) * limit
+        
+        # Fetch test results from the test_results collection
+        results = list(db.test_results.find(
+            {"userId": user_id}
+        ).sort("completedAt", -1).skip(skip).limit(limit))
+        
+        # Convert ObjectId to string and ensure all required fields exist
+        for result in results:
+            result['_id'] = str(result['_id'])
+            # Ensure completedAt exists
+            if 'completedAt' not in result or result['completedAt'] is None:
+                result['completedAt'] = result.get('createdAt', datetime.now(timezone.utc))
+            # Ensure timeTaken exists
+            if 'timeTaken' not in result:
+                result['timeTaken'] = 0
+            # Ensure results structure exists
+            if 'results' not in result:
+                result['results'] = {'score': 0, 'total': 0, 'percentage': 0}
+            # Ensure totalQuestions exists
+            if 'totalQuestions' not in result:
+                result['totalQuestions'] = result.get('results', {}).get('total', 0)
+        
+        # Get total count for pagination
+        total_count = db.test_results.count_documents({"userId": user_id})
+        
+        return jsonify({
+            "results": results,
+            "pagination": {
+                "current_page": page,
+                "total_pages": (total_count + limit - 1) // limit,
+                "total_results": total_count,
+                "has_next": skip + limit < total_count,
+                "has_prev": page > 1
+            }
+        }), 200
+        
+    except Exception as e:
+        print(f"Error fetching user test results: {str(e)}")
+        return jsonify({"error": f"Failed to fetch test results: {str(e)}"}), 500
+
+@app.route('/api/user-stats/<user_id>', methods=['GET'])
+def get_user_stats(user_id):
+    try:
+        # Aggregate user statistics
+        pipeline = [
+            {"$match": {"userId": user_id}},
+            {"$group": {
+                "_id": "$userId",
+                "totalTests": {"$sum": 1},
+                "averageScore": {"$avg": "$results.percentage"},
+                "totalQuestions": {"$sum": "$totalQuestions"},
+                "totalTimeTaken": {"$sum": "$timeTaken"},
+                "bestScore": {"$max": "$results.percentage"},
+                "recentTests": {"$push": {
+                    "testName": "$testName",
+                    "score": "$results.percentage",
+                    "completedAt": "$completedAt",
+                    "subjects": "$subjects"
+                }}
+            }}
+        ]
+        
+        stats = list(db.test_results.aggregate(pipeline))
+        
+        if not stats:
+            return jsonify({
+                "totalTests": 0,
+                "averageScore": 0,
+                "totalQuestions": 0,
+                "totalTimeTaken": 0,
+                "bestScore": 0,
+                "recentTests": [],
+                "subjectPerformance": []
+            }), 200
+        
+        user_stats = stats[0]
+        
+        # Ensure no null values
+        user_stats["averageScore"] = user_stats.get("averageScore") or 0
+        user_stats["bestScore"] = user_stats.get("bestScore") or 0
+        user_stats["totalTimeTaken"] = user_stats.get("totalTimeTaken") or 0
+        
+        # Get subject-wise performance
+        subject_pipeline = [
+            {"$match": {"userId": user_id}},
+            {"$unwind": "$subjects"},
+            {"$group": {
+                "_id": "$subjects",
+                "averageScore": {"$avg": "$results.percentage"},
+                "testCount": {"$sum": 1}
+            }}
+        ]
+        
+        subject_stats = list(db.test_results.aggregate(subject_pipeline))
+        
+        return jsonify({
+            "totalTests": user_stats.get("totalTests", 0),
+            "averageScore": round(user_stats.get("averageScore", 0), 2),
+            "totalQuestions": user_stats.get("totalQuestions", 0),
+            "totalTimeTaken": user_stats.get("totalTimeTaken", 0),
+            "bestScore": round(user_stats.get("bestScore", 0), 2),
+            "recentTests": user_stats.get("recentTests", [])[-5:],  # Last 5 tests
+            "subjectPerformance": subject_stats
+        }), 200
+        
+    except Exception as e:
+        print(f"Error fetching user stats: {str(e)}")
+        return jsonify({"error": f"Failed to fetch user stats: {str(e)}"}), 500
+
 @app.route('/api/test-history', methods=['POST'])
 def get_test_history():
     user_id = request.json.get('userId')
@@ -498,7 +674,9 @@ Answer: [A/B/C/D]
                     'model': GROQ_MODEL,
                     'messages': [{'role': 'user', 'content': prompt}],
                     'temperature': 0.7,
-                    'max_tokens': 500
+                    'max_completion_tokens': 1024,
+                    'top_p': 1,
+                    'stream': False
                 },
                 timeout=30
             )
@@ -528,6 +706,8 @@ Answer: [A/B/C/D]
                     return None
             else:
                 print(f"GROQ API error: {response.status_code}")
+                print(f"Response content: {response.text}")
+                print(f"API Key being used: {GROQ_API_KEY[:10]}...")
                 return None
                 
         except Exception as e:
@@ -577,113 +757,7 @@ def parse_mcq_string(mcq_str):
     except Exception as e:
         print(f"Error parsing MCQ string: {e}")
         return None
-@app.route('/api/user-test-results/<user_id>', methods=['GET'])
-def get_user_test_results(user_id):
-    try:
-       
-        page = int(request.args.get('page', 1))
-        limit = int(request.args.get('limit', 10))
-        skip = (page - 1) * limit
-     
-        results = list(db.test_results.find(
-            {"userId": user_id}
-        ).sort("completedAt", -1).skip(skip).limit(limit))
-        
-        for result in results:
-            result['_id'] = str(result['_id'])
-       
-            if 'completedAt' not in result or result['completedAt'] is None:
-                result['completedAt'] = result.get('createdAt', datetime.now(timezone.utc))
-            if 'timeTaken' not in result:
-                result['timeTaken'] = 0
-            if 'results' not in result:
-                result['results'] = {'score': 0, 'total': 0, 'percentage': 0}
-            if 'totalQuestions' not in result:
-                result['totalQuestions'] = result.get('results', {}).get('total', 0)
-       
-        total_count = db.test_results.count_documents({"userId": user_id})
-        
-        return jsonify({
-            "results": results,
-            "pagination": {
-                "current_page": page,
-                "total_pages": (total_count + limit - 1) // limit,
-                "total_results": total_count,
-                "has_next": skip + limit < total_count,
-                "has_prev": page > 1
-            }
-        }), 200
-        
-    except Exception as e:
-        print(f"Error fetching user test results: {str(e)}")
-        return jsonify({"error": f"Failed to fetch test results: {str(e)}"}), 500
-@app.route('/api/user-stats/<user_id>', methods=['GET'])
-def get_user_stats(user_id):
-    try:
-      
-        pipeline = [
-            {"$match": {"userId": user_id}},
-            {"$group": {
-                "_id": "$userId",
-                "totalTests": {"$sum": 1},
-                "averageScore": {"$avg": "$results.percentage"},
-                "totalQuestions": {"$sum": "$totalQuestions"},
-                "totalTimeTaken": {"$sum": "$timeTaken"},
-                "bestScore": {"$max": "$results.percentage"},
-                "recentTests": {"$push": {
-                    "testName": "$testName",
-                    "score": "$results.percentage",
-                    "completedAt": "$completedAt",
-                    "subjects": "$subjects"
-                }}
-            }}
-        ]
-        
-        stats = list(db.test_results.aggregate(pipeline))
-        
-        if not stats:
-            return jsonify({
-                "totalTests": 0,
-                "averageScore": 0,
-                "totalQuestions": 0,
-                "totalTimeTaken": 0,
-                "bestScore": 0,
-                "recentTests": [],
-                "subjectPerformance": []
-            }), 200
-        
-        user_stats = stats[0]
-        
-    
-        user_stats["averageScore"] = user_stats.get("averageScore") or 0
-        user_stats["bestScore"] = user_stats.get("bestScore") or 0
-        user_stats["totalTimeTaken"] = user_stats.get("totalTimeTaken") or 0
-        
-        subject_pipeline = [
-            {"$match": {"userId": user_id}},
-            {"$unwind": "$subjects"},
-            {"$group": {
-                "_id": "$subjects",
-                "averageScore": {"$avg": "$results.percentage"},
-                "testCount": {"$sum": 1}
-            }}
-        ]
-        
-        subject_stats = list(db.test_results.aggregate(subject_pipeline))
-        
-        return jsonify({
-            "totalTests": user_stats.get("totalTests", 0),
-            "averageScore": round(user_stats.get("averageScore", 0), 2),
-            "totalQuestions": user_stats.get("totalQuestions", 0),
-            "totalTimeTaken": user_stats.get("totalTimeTaken", 0),
-            "bestScore": round(user_stats.get("bestScore", 0), 2),
-            "recentTests": user_stats.get("recentTests", [])[-5:], 
-            "subjectPerformance": subject_stats
-        }), 200
-        
-    except Exception as e:
-        print(f"Error fetching user stats: {str(e)}")
-        return jsonify({"error": f"Failed to fetch user stats: {str(e)}"}), 500
+
 
 @app.route('/api/test-result/<result_id>', methods=['GET'])
 def get_test_result_details(result_id):
@@ -711,30 +785,69 @@ def evaluate():
     if not questions or not user_answers or len(questions) != len(user_answers):
         return jsonify({"error": "Invalid input"}), 400
 
-    score = 0
+    # JEE Marking Scheme: +4 for correct, -1 for incorrect, 0 for unattempted
+    total_score = 0
+    correct_count = 0
+    incorrect_count = 0
+    unattempted_count = 0
     detailed_results = []
 
     for i, (q, ua) in enumerate(zip(questions, user_answers)):
         correct_answer = q.get("answer", "").strip().upper()
         user_answer = ua.strip().upper() if ua else ""
-        is_correct = correct_answer == user_answer
         
-        if is_correct:
-            score += 1
+        # Determine question status and score
+        if not user_answer:  # Unattempted
+            question_score = 0
+            is_correct = False
+            status = "unattempted"
+            unattempted_count += 1
+        elif correct_answer == user_answer:  # Correct
+            question_score = 4
+            is_correct = True
+            status = "correct"
+            correct_count += 1
+        else:  # Incorrect
+            question_score = -1
+            is_correct = False
+            status = "incorrect"
+            incorrect_count += 1
+        
+        total_score += question_score
             
         detailed_results.append({
             "question": q.get("question"),
             "correct_answer": correct_answer,
             "user_answer": user_answer,
             "is_correct": is_correct,
+            "status": status,
+            "score": question_score,
             "subject": q.get("subject", "Unknown")
         })
 
+    # Calculate maximum possible score (all correct)
+    max_possible_score = len(questions) * 4
+    
+    # Calculate percentage based on total score vs max possible
+    percentage = round((total_score / max_possible_score) * 100, 2) if max_possible_score > 0 else 0
+    
+    # Ensure percentage doesn't go below 0
+    percentage = max(0, percentage)
+
     return jsonify({
         "total": len(questions),
-        "score": score,
-        "percentage": round((score / len(questions)) * 100, 2),
-        "details": detailed_results
+        "score": total_score,  # This is now the JEE score (can be negative)
+        "max_score": max_possible_score,
+        "correct_count": correct_count,
+        "incorrect_count": incorrect_count,
+        "unattempted_count": unattempted_count,
+        "percentage": percentage,
+        "details": detailed_results,
+        "marking_scheme": {
+            "correct": "+4",
+            "incorrect": "-1",
+            "unattempted": "0"
+        }
     }), 200
 
 @app.route('/api/stats', methods=['GET'])
